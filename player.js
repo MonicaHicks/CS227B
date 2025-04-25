@@ -100,3 +100,39 @@ function maximax(state) {
   }
   return { score: bestVector, move: bestAction };
 }
+
+//===============================================================
+// Pessimistic eval: return rewards on terminal states only
+//===============================================================
+function pessimistic(state, role) {
+  if (findterminalp(state, library)) {
+    return findreward(role, state, library);
+  }
+  return 0;
+}
+
+//===============================================================
+// Mobility function: 
+// - When player is in control, high score = many moves, low score = few moves
+// - When opponent(s) in control, high score = opponent has low mobility,
+//   low score = opponent has high mobility
+//===============================================================
+function mobility(state) {
+  var actions = findlegals(state,library);
+  var feasibles = findactions(library);
+  return (actions.length/feasibles.length * 100);
+}
+
+function focus(state) {
+  var actions = findlegals(state,library);
+  var feasibles = findactions(library);
+  return (100 - (actions.length/feasibles.length * 100));
+}
+
+//===============================================================
+// Intermediate Reward function: return the reward associated with the state,
+// terminal or not
+//===============================================================
+function returnReward(state, role) {
+  return findreward(role, state, library);
+}
