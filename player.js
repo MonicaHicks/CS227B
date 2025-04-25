@@ -45,10 +45,12 @@ function play(move) {
   if (move !== nil) {
     state = simulate(move, state, library);
   }
+
+  // may need to remove for mobility
   if (findcontrol(state, library) !== role) {
     return false;
   }
-  // Use maximax to play next best move
+
   return playmaximax(state);
 }
 
@@ -101,9 +103,22 @@ function maximax(state) {
   return { score: bestVector, move: bestAction };
 }
 
-function pessimistic() {
+function pessimistic(state, role) {
   if (findterminalp(state, library)) {
-    return findreward(findcontrol(state, library), state, library);
+    //return findreward(findcontrol(state, library), state, library);
+    return findreward(role, state, library);
   }
   return 0;
+}
+
+function mobility(state) {
+  var actions = findlegals(state, library);
+  var feasibles = findactions(library);
+  return (actions.length / feasibles.length) * 100;
+}
+
+function focus(state) {
+  var actions = findlegals(state, library);
+  var feasibles = findactions(state, library);
+  return 100 - (actions.length / feasibles.length) * 100;
 }
