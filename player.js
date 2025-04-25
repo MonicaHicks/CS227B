@@ -100,3 +100,10 @@ function maximax(state) {
   }
   return { score: bestVector, move: bestAction };
 }
+
+function pessimistic() {
+  if (findterminalp(state, library)) {
+    return findreward(findcontrol(state, library), state, library);
+  }
+  return 0;
+}
