@@ -214,12 +214,12 @@ function pessimistic(state, library) {
 // shuffle function
 //===============================================================
 function shuffle(actions) {
-  // I made it -2 because it seemed to sufficiently
-  // shuffle it and it will speed it up a bit
-  for (var i = actions.length - 1; i > 0; i -= 2) {
+  for (var i = actions.length - 1; i > 0; i--) {
     // https://www.geeksforgeeks.org/how-to-shuffle-an-array-using-javascript/
     var idx = Math.floor(Math.random() * (i + 1));
-    [actions[i], actions[idx]] = [actions[idx], actions[i]];
+    var temp = actions[i];
+    actions[i] = actions[idx];
+    actions[idx] = temp;
   }
   return actions;
 }
