@@ -112,7 +112,7 @@ function alphabeta_bounded_id(state, role, alpha, beta, depth, deadline) {
     return findreward(role, state, library) * 1;
   }
   if (depth <= 0) {
-    return intermediateEval(state, library); // USES INTERMEDIATE REWARD HERE
+    return evalWeights(state, library); // USES INTERMEDIATE REWARD HERE
   }
   if (Date.now() > deadline) {
     return false;
@@ -201,21 +201,24 @@ function minimize_bounded_id(state, role, alpha, beta, depth, deadline) {
 // Intermediate reward evaluation function (returns actual reward in all states)
 // Mobility/focus functions (your mobility, limiting opponent mobility)
 //===============================================================
-function evalWeights(state) {
-    return (0.7 * intermediateEval(state, library)) + (0.3 * mobility(state));
+function evalWeights(state, library) {
+  if (roles.length > 1) {
+    return (1 * intermediateEval(state, library)); // + (0.2 * mobility(state, library))
+  }
+  return (0.7 * intermediateEval(state, library)) + (0.3 * pessimistic(state, library));
 }
 
 function intermediateEval(state, library) {
   return findreward(role, state, library) * 1;
 }
 
-function mobility(state) {
+function mobility(state, library) {
   var actions = findlegals(state,library);
   var feasibles = findactions(library);
   return (actions.length/feasibles.length * 100);
 }
 
-function focus(state) {
+function focus(state, library) {
   var actions = findlegals(state,library);
   var feasibles = findactions(library);
   return (100 - (actions.length/feasibles.length * 100));
