@@ -44,7 +44,7 @@ function play(move) {
   if (findcontrol(state, library) !== role) {
     return false;
   }
-  return play_alpha_beta_id(state);
+  return play_mcs_id(state);
 }
 
 //===============================================================
@@ -52,11 +52,13 @@ function play(move) {
 // deepening.
 //===============================================================
 
-function play_alpha_beta_id(state) {
-  var deadline = Date.now() + (playclock - 1) * 1000;
+function play_mcs_id(state) {
+  var hard_deadline = Date.now() + (playclock - 2) * 1000;
+  var soft_deadline = hard_deadline - 3;
+
   var best = findlegalx(state, library);
   for (var depth = 1; depth < 10; depth++) {
-    var action = play_alpha_beta_id_inner(state, role, 0, 100, depth, deadline);
+    var action = play_alpha_beta_id_inner(state, role, 0, 100, depth, soft_deadline);
     if (action === false) {
       return best;
     }
@@ -69,7 +71,7 @@ function play_alpha_beta_id(state) {
 // Finds best action by evaluating future rewards via iterative
 // deepening alpha beta
 //===============================================================
-function play_alpha_beta_id_inner(state, role, alpha, beta, depth, deadline) {
+function play_mcs_id_inner(state, role, alpha, beta, depth, hard_deadline) {
   var actions = shuffle(findlegals(state, library));
   if (actions.length === 0) {
     return false;
@@ -80,19 +82,27 @@ function play_alpha_beta_id_inner(state, role, alpha, beta, depth, deadline) {
   var bestAction = actions[0];
   var bestScore = 0;
 
+  var results = [];
+  var scores = [];
+  var visits = [];
+  var states = [];
+
   for (var i = 0; i < actions.length; i++) {
     var newState = simulate(actions[i], state, library);
-    var result = alphabeta_bounded_id(
-      newState,
-      role,
-      alpha,
-      beta,
-      depth,
-      deadline
-    );
+
+    // before soft deadline hits, use ID to get to as much depth as we can
+    var result = alphabeta_bounded_id(newState, role, alpha, beta, depth, hard_deadline);
+    results[i] = result;
+
+
     if (result === false) {
       return false;
+      // TODO: ADD DEPTH CHARGES HERE?
+      // go through the actions at this depth with MCS
+      
     }
+
+    // NOTE BELOW GETS PUT INTO SELECTACTION() LOGIC, SO RETURN AN ARRAY
     if (result === 100) {
       return actions[i];
     } // early return for winning move
@@ -116,6 +126,7 @@ function alphabeta_bounded_id(state, role, alpha, beta, depth, deadline) {
   }
   if (Date.now() > deadline) {
     return false;
+    // TODO: ADD DEPTH CHARGES HERE?
   }
   var active = findcontrol(state, library);
   if (active === role) {
