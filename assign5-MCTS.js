@@ -39,6 +39,14 @@ function start(r, rs, sc, pc) {
   return "ready";
 }
 
+function stop(move) {
+  return false;
+}
+
+function abort() {
+  return false;
+}
+
 function makenode(state, mover, reward) {
   total_nodes++;
   // console.log("Total nodes: ", total_nodes);
@@ -51,6 +59,8 @@ function makenode(state, mover, reward) {
     visits: 0,
   };
 }
+
+// 3 cases
 
 //===============================================================
 // Play function that calls MCTS
@@ -69,11 +79,17 @@ function play(move) {
   //return selectaction(tree);
 }
 
+// Select -> Expand -> Simulate/Depthprobe -> Backprop
 function playMCTS(state) {
   var deadline = Date.now() + Math.floor(playclock - 2) * 1000;
   while (Date.now() < deadline) { process(tree) };
 
-  var actions = shuffle(findlegals(state,library));
+
+  return selectaction(tree);
+
+  // this code is from MCS for just making the next states for exploration
+  // BUT PTS does that searching via the tree nodes
+  /*var actions = shuffle(findlegals(state,library));
   if (actions.length === 0) { return false };
   if (actions.length === 1) { return actions[0] };
 
@@ -88,16 +104,25 @@ function playMCTS(state) {
   explore(states, scores, visits, deadline);
   var move = selectaction(actions, scores, visits);
   // can insert print of move here for debugging
-  return move;
+  return move;*/
 }
 
+//==============================================================================
+// PTS RELATED FUNCTIONS
+//==============================================================================
 function process(node) {
   if (findterminalp(node.state, library)) {
     return true;
   }
+  // if the node is unexpanded, expand
   if (node.children.length === 0) {
     expand(node);
+    // then simulate MCS?
+    // pick an node, do depth charge
+    var picknode = select(node);
+    var result = depthcharge(picknode.state);
   } else {
+    // if already expanded, select the best node
     process(select(node));
   }
   update(node);
@@ -138,7 +163,7 @@ function update(node) {
   } else {
     node.utility = scoremin(node);
   }
-  node.visits = node.visits + 1;
+  node.visits++; // counts up node visits as it 
   return true;
 }
 
@@ -211,23 +236,69 @@ function value(utility, visits, total) {
   return score;
 }
 
-function shuffle(actions) {
-  for (var i = actions.length - 1; i > 0; i--) {
-    // https://www.geeksforgeeks.org/how-to-shuffle-an-array-using-javascript/
-    var idx = Math.floor(Math.random() * (i + 1));
-    var temp = actions[i];
-    actions[i] = actions[idx];
-    actions[idx] = temp;
+//==============================================================================
+// MCS RELATED FUNCTIONS
+//==============================================================================
+//===============================================================
+// Explore
+//===============================================================
+function explore (states, scores, visits, deadline) {
+  var index = 0;
+  var depthcharges = 0;
+  while (Date.now() < deadline) {
+    if (index >= states.length) { index = 0 };
+    var result = depthcharge(states[index]);
+    scores[index] = scores[index] + result;
+    visits[index] = visits[index] + 1;
+    depthcharges++; 
+    index++;
   }
-  return actions;
+  console.log("State index: ", index);
+  console.log("Depthcharges: ", depthcharges);
+  return true;
 }
 
-function stop(move) {
-  return false;
+//===============================================================
+// Depth Charge
+//===============================================================
+function depthcharge (state) {
+  if (findterminalp(state,library)) {
+    return findreward(role,state,library)*1;
+  }
+
+  var actions = findlegals(state,library);
+  if (actions.length === 0) { return 0 };
+
+  // pick random next action, recursively call
+  var best = randomindex(actions.length);
+  var newstate = simulate(actions[best], state, library);
+  return depthcharge(newstate);
 }
 
-function abort() {
-  return false;
+//===============================================================
+// Select Actions
+//===============================================================
+function selectaction (actions, scores, visits) {
+  var action = actions[0];
+  var score = -1;
+  var probes = 0;
+  for (var i=0; i < actions.length; i++) {
+    // average the score over num of visits to eval
+    var newscore = Math.round(scores[i]/visits[i]);
+    if (newscore === 100) { return actions[i] };
+    if (newscore > score) {
+      action = actions[i];
+      score = newscore;
+      probes = visits[i];
+    }
+  }
+  // console.log("Score: ", score);
+  console.log("Probes: ", probes);
+  return action;
+}
+
+function randomindex(numactions) {
+  return Math.floor(Math.random() * (numactions));
 }
 
 //===============================================================
@@ -263,6 +334,19 @@ if (findterminalp(state, library)) {
   return findreward(role, state, library) * 1;
   }
 return 0;
+}
+//===============================================================
+// Shuffle function
+//===============================================================
+function shuffle(actions) {
+  for (var i = actions.length - 1; i > 0; i--) {
+    // https://www.geeksforgeeks.org/how-to-shuffle-an-array-using-javascript/
+    var idx = Math.floor(Math.random() * (i + 1));
+    var temp = actions[i];
+    actions[i] = actions[idx];
+    actions[idx] = temp;
+  }
+  return actions;
 }
 //==============================================================================
 
