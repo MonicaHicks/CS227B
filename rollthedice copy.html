@@ -1,0 +1,277 @@
+<html>
+
+
+<!--=======================================================================-->
+
+
+<head>
+  <title>Legal</title>
+  <script type='text/javascript' src='/epilog/javascript/epilog.js'></script>
+  <script type='text/javascript' src='../javascript/localstorage.js'></script>
+  <script type='text/javascript' src='../gameplaying/legal.js'></script>
+  <script type='text/javascript' src='../interpreter/general.js'></script>
+  <script type='text/javascript'>
+//==============================================================================
+// The code below defines a basic legal player.
+// Steps to customize:
+// (1) Replace our definitions of ping, start, play, stop, abort with your code.
+// (2) Be sure to set the variable 'player' to your player's id.
+// (3) Also change the value in the 'Identifier' field in the HTML below.
+//==============================================================================
+//==============================================================================
+// Monte Carlo Player
+//==============================================================================
+var player_type = "MCS"
+
+var manager = "manager";
+var player = "rollthedice"; // <- your player name
+
+var role = "robot";
+var ruleset = [];
+var library = [];
+var roles = [];
+var state = [];
+
+var startclock = 10;
+var playclock = 10;
+
+//===============================================================
+
+function ping() {
+  console.log("Player Type: ", player_type);
+  return "ready";
+}
+  
+function start(r, rs, sc, pc) {
+  role = r;
+  ruleset = rs;
+  library = definemorerules([], rs.slice(1));
+  roles = findroles(library);
+  state = findinits(library);
+  startclock = numberize(sc);
+  playclock = numberize(pc);
+  return "ready";
+}
+
+//===============================================================
+// Play function that calls MCS
+//===============================================================
+function play(move) {
+  if (move !== nil) {
+    state = simulate(move, state, library);
+  }
+  if (findcontrol(state, library) !== role) {
+    return false;
+  }
+  return playMCS(state);
+}
+
+//===============================================================
+// Play Monte-Carlo Search Player
+//===============================================================
+function playMCS(state) {
+  var deadline = Date.now() + Math.floor(playclock - 2) * 1000;
+  var actions = shuffle(findlegals(state,library));
+  if (actions.length === 0) { return false };
+  if (actions.length === 1) { return actions[0] };
+
+  var states = [];
+  var scores = [];
+  var visits = [];
+  for (var i = 0; i < actions.length; i++) {
+    states[i] = simulate(actions[i], state, library);
+    scores[i] = 0;
+    visits[i] = 0;
+  }
+  explore(states, scores, visits, deadline);
+  var move = selectaction(actions, scores, visits);
+  // can insert print of move here for debugging
+  return move;
+}
+
+//===============================================================
+// Explore
+//===============================================================
+function explore (states, scores, visits, deadline) {
+  var index = 0;
+  var depthcharges = 0;
+  while (Date.now() < deadline) {
+    if (index >= states.length) { index = 0 };
+    var result = depthcharge(states[index]);
+    scores[index] = scores[index] + result;
+    visits[index] = visits[index] + 1;
+    depthcharges++; 
+    index++;
+  }
+  console.log("State index: ", index);
+  console.log("Depthcharges: ", depthcharges);
+  return true;
+}
+
+//===============================================================
+// Depth Charge
+//===============================================================
+function depthcharge (state) {
+  if (findterminalp(state,library)) {
+    return findreward(role,state,library)*1;
+  }
+
+  var actions = findlegals(state,library);
+  if (actions.length === 0) { return 0 };
+
+  // pick random next action, recursively call
+  var best = randomindex(actions.length);
+  var newstate = simulate(actions[best], state, library);
+  return depthcharge(newstate);
+}
+
+//===============================================================
+// Select Actions
+//===============================================================
+function selectaction (actions, scores, visits) {
+  var action = actions[0];
+  var score = -1;
+  var probes = 0;
+  for (var i=0; i < actions.length; i++) {
+    // average the score over num of visits to eval
+    var newscore = Math.round(scores[i]/visits[i]);
+    if (newscore === 100) { return actions[i] };
+    if (newscore > score) {
+      action = actions[i];
+      score = newscore;
+      probes = visits[i];
+    }
+  }
+  // console.log("Score: ", score);
+  console.log("Probes: ", probes);
+  return action;
+}
+
+function randomindex(numactions) {
+  return Math.floor(Math.random() * (numactions));
+}
+
+//===============================================================
+// shuffle function
+//===============================================================
+function shuffle(actions) {
+  for (var i = actions.length - 1; i > 0; i--) {
+    // https://www.geeksforgeeks.org/how-to-shuffle-an-array-using-javascript/
+    var idx = Math.floor(Math.random() * (i + 1));
+    var temp = actions[i];
+    actions[i] = actions[idx];
+    actions[idx] = temp;
+  }
+  return actions;
+}
+    
+//===============================================================
+
+function stop(move) {
+  return false;
+}
+
+function abort() {
+  return false;
+}
+
+//==============================================================================
+// End of player code
+//==============================================================================
+  </script>
+</head>
+
+
+<!--=======================================================================-->
+
+
+<body bgcolor='#aabbbb' onload='doinitialize()'>
+  <center>
+    <table width='720' cellspacing='0' cellpadding='40' bgcolor='#ffffff'>
+      <tr>
+        <td>
+
+
+<!--=======================================================================-->
+
+
+<center>
+  <table width='640' cellpadding='0'>
+    <tr>
+      <td width='180' align='center' valign='center'>
+        <img width='130' src='http://gamemaster.stanford.edu/images/ggp.jpg'/>
+      </td>
+      <td align='center'>
+        <span style='font-size:18pt'>&nbsp;</span>
+        <span style='font-size:32pt'>Gamemaster</span><br/>
+      </td>
+      <td width='180' align='center' style='color:#000066;font-size:18px'>
+        <i>General<br/>Game<br/>Playing</i>
+      </td>
+    </tr>
+  </table>
+</center>
+
+
+<!--=======================================================================-->
+
+
+<br/>
+<table width='640' cellpadding='8' cellspacing='0' bgcolor='#f4f8f8' border='1'>
+  <tr height='40'>
+     <td align='center'>
+<table style='color:#000066;font-size:18px'>
+  <tr>
+    <td>
+Protocol: localstorage<br/>
+Metagamer: none<br/>
+Strategy: MCS<br/>
+Identifier: <span id='player'>rollthedice</span> <img src="http://gamemaster.stanford.edu/images/pencil.gif" onclick='doplayer()'/>
+    </td>
+  </tr>
+</table>
+    </td>
+  </tr>
+</table>
+<br/>
+
+<!--=======================================================================-->
+<div style="width: full; text-align: center;">
+  <h1>Assignment 5 Writeup</h1>
+  <p>
+    This week, we implemented a Monte Carlo Search (MCS)-based player for our player. Our player applies the core concept of simulating multiple random playouts (depth charges) to estimate the utility of game states. Our player is based on the week’s main lesson of evaluating actions by simulating games to terminal states and averaging the resulting rewards.
+  </p>
+  <p>
+    In our implementation, the playMCS() function sets a time-bound (based on the playclock) and samples random actions from the list of legal moves. Each action leads to a next state, which is then explored using repeated depth charges within the allotted time window. The number of depth charges for each action is tracked, and expected utility is computed as the average score across these visits, consistent with the one-step MCS strategy discussed in class.
+  </p>
+  <p>
+    The explore() function in our player performs randomized simulations for each action's resulting state, while depthcharge() recursively progresses the game to terminal states using random legal moves. With these we implement the concept of non-uniform search, where we explore some paths more than others based on time constraints rather than structured expansion (which will come with MCTS).
+  </p>
+  <p>
+    Finally, in our implementation, selectaction() chooses the best move using average reward scores, implementing a simple exploitation strategy. In this strategy we choose the action with the highest average outcome. Although we haven't implemented UCT or tree persistence yet, our player captures the essence of Monte Carlo evaluation and provides meaningful decision-making even without the traditional heuristics. As a next step for improvement, we are currently working on building our MCTS player! 
+  </p>
+</div>
+
+<!--=======================================================================-->
+
+
+<center>
+  <br/>
+  <textarea id='transcript' style='font-family:courier' rows='30' cols='80' readonly></textarea>
+</center>
+
+
+<!--=======================================================================-->
+
+
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+
+
+<!--=======================================================================-->
+
+
+</html>
