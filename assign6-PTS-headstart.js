@@ -1,10 +1,9 @@
 //==============================================================================
-// IN PROGRESS Monte Carlo Tree Search Player
+// Persistent Tree Player
 //==============================================================================
 
 var manager = "manager";
 var player = "rollthedice"; // <- your player name
-var player_type = "MCTS"
 
 var role = "robot";
 var ruleset = [];
@@ -17,12 +16,11 @@ var startclock = 10;
 var playclock = 10;
 
 var total_nodes = 0;
-var total_playouts = 0;
 
 //===============================================================
 
 function ping() {
-  console.log("Player Type: ", player_type);
+  console.log("Player: Monica PTS");
   return "ready";
 }
 
@@ -37,17 +35,11 @@ function start(r, rs, sc, pc) {
   // for persistent tree
   var reward = parseInt(findreward(role, state, library));
   tree = makenode(state, findcontrol(state, library), reward);
-  total_nodes = 0;
-  total_playouts = 0;
+  // HEADSTART
+  var headstart_deadline = Date.now() + (startclock) * 1000;
+  while (Date.now() < headstart_deadline) { process(tree) };
+  // console.log("Starting node: ", tree);
   return "ready";
-}
-
-function stop(move) {
-  return false;
-}
-
-function abort() {
-  return false;
 }
 
 function makenode(state, mover, reward) {
@@ -63,10 +55,8 @@ function makenode(state, mover, reward) {
   };
 }
 
-// 3 cases
-
 //===============================================================
-// Play function that calls MCTS
+// Play function that calls playalphabetaid
 //===============================================================
 function play(move) {
   if (move !== nil) {
@@ -76,61 +66,18 @@ function play(move) {
   if (findcontrol(state, library) !== role) {
     return false;
   }
-  return playMCTS(state);
-  //var deadline = Date.now() + (playclock - 2) * 1000;
-  //while (Date.now() < deadline) { process(tree) };
-  //return selectaction(tree);
-}
-
-// Select -> Expand -> Simulate/Depthprobe -> Backprop
-function playMCTS(state) {
-  var deadline = Date.now() + Math.floor(playclock - 2) * 1000;
+  var deadline = Date.now() + (playclock - 2) * 1000;
   while (Date.now() < deadline) { process(tree) };
-  console.log("Curr num nodes: ", total_nodes);
-  console.log("Curr num playouts: ", total_playouts);
-  console.log("Curr utility: ", tree.utility);
   return selectaction(tree);
-
-  // this code is from MCS for just making the next states for exploration
-  // BUT PTS does that searching via the tree nodes
-  /*var actions = shuffle(findlegals(state,library));
-  if (actions.length === 0) { return false };
-  if (actions.length === 1) { return actions[0] };
-
-  var states = [];
-  var scores = [];
-  var visits = [];
-  for (var i = 0; i < actions.length; i++) {
-    states[i] = simulate(actions[i], state, library);
-    scores[i] = 0;
-    visits[i] = 0;
-  }
-  explore(states, scores, visits, deadline);
-  var move = selectaction(actions, scores, visits);
-  // can insert print of move here for debugging
-  return move;*/
 }
 
-//==============================================================================
-// PTS RELATED FUNCTIONS
-//==============================================================================
 function process(node) {
   if (findterminalp(node.state, library)) {
     return true;
   }
-  // if the node is unexpanded, expand
   if (node.children.length === 0) {
     expand(node);
-    // then simulate MCS
-    // pick an node, do depth charge, track playout
-    var picknode = select(node);
-    var result = depthcharge(picknode.state);
-    // do something with the result
-    // UCT on result??? 
-    // bare minimum, backpropagate here after simulation
-    backpropagate(picknode, result);
   } else {
-    // if already expanded, select the best node
     process(select(node));
   }
   update(node);
@@ -171,7 +118,8 @@ function update(node) {
   } else {
     node.utility = scoremin(node);
   }
-  node.visits++; // counts up node visits as it 
+  node.visits = node.visits + 1;
+  //console.log("New node: ", node);
   return true;
 }
 
@@ -244,77 +192,23 @@ function value(utility, visits, total) {
   return score;
 }
 
-function backpropagate(node, reward) {
-  node.visits++;
-  node.value += reward;
-  if (node.parent) {
-    backpropagate(node.parent, reward);
+function shuffle(actions) {
+  for (var i = actions.length - 1; i > 0; i--) {
+    // https://www.geeksforgeeks.org/how-to-shuffle-an-array-using-javascript/
+    var idx = Math.floor(Math.random() * (i + 1));
+    var temp = actions[i];
+    actions[i] = actions[idx];
+    actions[idx] = temp;
   }
+  return actions;
 }
 
-//==============================================================================
-// MCS RELATED FUNCTIONS
-//==============================================================================
-//===============================================================
-// Explore
-//===============================================================
-function explore (states, scores, visits, deadline) {
-  var index = 0;
-  var depthcharges = 0;
-  while (Date.now() < deadline) {
-    if (index >= states.length) { index = 0 };
-    var result = depthcharge(states[index]);
-    scores[index] = scores[index] + result;
-    visits[index] = visits[index] + 1;
-    depthcharges++; 
-    index++;
-  }
-  console.log("State index: ", index);
-  console.log("Depthcharges: ", depthcharges);
-  return true;
+function stop(move) {
+  return false;
 }
 
-//===============================================================
-// Depth Charge
-//===============================================================
-function depthcharge (state) {
-  if (findterminalp(state,library)) {
-    return findreward(role,state,library)*1;
-  }
-
-  var actions = findlegals(state,library);
-  if (actions.length === 0) { return 0 };
-
-  // pick random next action, recursively call
-  var best = randomindex(actions.length);
-  var newstate = simulate(actions[best], state, library);
-  return depthcharge(newstate);
-}
-
-//===============================================================
-// Select Actions
-//===============================================================
-function selectaction (actions, scores, visits) {
-  var action = actions[0];
-  var score = -1;
-  var probes = 0;
-  for (var i=0; i < actions.length; i++) {
-    // average the score over num of visits to eval
-    var newscore = Math.round(scores[i]/visits[i]);
-    if (newscore === 100) { return actions[i] };
-    if (newscore > score) {
-      action = actions[i];
-      score = newscore;
-      probes = visits[i];
-    }
-  }
-  // console.log("Score: ", score);
-  console.log("Probes: ", probes);
-  return action;
-}
-
-function randomindex(numactions) {
-  return Math.floor(Math.random() * (numactions));
+function abort() {
+  return false;
 }
 
 //===============================================================
@@ -350,19 +244,6 @@ if (findterminalp(state, library)) {
   return findreward(role, state, library) * 1;
   }
 return 0;
-}
-//===============================================================
-// Shuffle function
-//===============================================================
-function shuffle(actions) {
-  for (var i = actions.length - 1; i > 0; i--) {
-    // https://www.geeksforgeeks.org/how-to-shuffle-an-array-using-javascript/
-    var idx = Math.floor(Math.random() * (i + 1));
-    var temp = actions[i];
-    actions[i] = actions[idx];
-    actions[idx] = temp;
-  }
-  return actions;
 }
 //==============================================================================
 
