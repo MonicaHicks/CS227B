@@ -1,7 +1,7 @@
 //==============================================================================
 // Persistent Tree Player
 //==============================================================================
-
+var player_type = "PTS headstart";
 var manager = "manager";
 var player = "rollthedice"; // <- your player name
 
@@ -20,7 +20,7 @@ var total_nodes = 0;
 //===============================================================
 
 function ping() {
-  console.log("Player: Monica PTS");
+  console.log("Player Type:", player_type);
   return "ready";
 }
 
