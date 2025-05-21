@@ -1,0 +1,629 @@
+<html>
+
+
+<!--=======================================================================-->
+
+
+<head>
+  <title>Legal</title>
+  <script type='text/javascript' src='/epilog/javascript/epilog.js'></script>
+  <script type='text/javascript' src='../javascript/localstorage.js'></script>
+  <script type='text/javascript' src='../gameplaying/legal.js'></script>
+  <script type='text/javascript' src='../interpreter/general.js'></script>
+  <script type='text/javascript' src='../metagaming/grounder.js'></script>
+  <script type='text/javascript' src='../reasoning/ground.js'></script>
+  <script type='text/javascript' src='../metagaming/symbolizer.js'></script>
+  <script type='text/javascript' src='../reasoning/symbol.js'></script>
+  <script type='text/javascript'>
+//==============================================================================
+// Bigswtich + Headstart, MCS and Alpha Beta ID
+//==============================================================================
+var player_type = "Bigswtich + Headstart, MCS and Alpha Beta ID, Grounder + Symbolizer";
+
+var manager = "manager";
+var player = "rollthedice";
+
+var role = "robot";
+var library = [];
+var roles = [];
+var state = [];
+var selectedPlayFunction = null;
+
+var startclock = 10;
+var playclock = 10;
+
+// big switch stuff
+var BF = 0; // branch factor for BS
+var MD = 0; // max depth for BS
+var IR = -100; // intermediate reward for BS
+var total_nodes = 0;
+var selectedPlayFunction = null;
+
+// Grounding/Symbolizing Comparison Values
+var TERMINALS = 0;
+var NODES = 0;
+
+// Headstart cache
+var headstartScores = [];
+var headstartVisits = [];
+var headstartActions = [];
+var headstartStates = [];
+
+//==============================================================================
+
+function ping() {
+  console.log("Player Type:", player_type);
+  return "ready";
+}
+
+function start(r, rs, sc, pc) {
+  role = r;
+  rules = definemorerules([], rs.slice(1));
+  grounded_rules = groundrules(rules, 5000);
+  if (grounded_rules) {
+    console.log("Grounded");
+    symbolized_rules = symbolizerules(grounded_rules);
+    console.log("Symbolized");
+    library = definemorerules([], symbolized_rules);
+  } else {
+    console.log("Grounding failed");
+    //return "ready";
+    library = definemorerules([], rs.slice(1));
+  }
+  roles = findroles(library);
+  state = findinits(library);
+  startclock = numberize(sc);
+  playclock = numberize(pc);
+
+  // BIGSWITCH
+  var grab_now = Date.now();
+  var bigswitch_deadline = grab_now + (startclock - 1) * 0.8 * 1000; // bigswitch takes up 30% of the time
+  var headstart_deadline = bigswitch_deadline + (startclock - 1) * 0.2 * 1000; // headstart takes up the remaining 70% of time
+
+  // add deadline to bs
+  bigSwitch(bigswitch_deadline);
+
+  if (IR < 5) {
+    document.getElementById("bs1").textContent = "MCS Player";
+    // Prepare headstart simulations
+    headstartActions = shuffle(findlegals(state, library));
+    headstartStates = [];
+    headstartScores = [];
+    headstartVisits = [];
+
+    for (var i = 0; i < headstartActions.length; i++) {
+      headstartStates[i] = simulate(headstartActions[i], state, library);
+      headstartScores[i] = 0;
+      headstartVisits[i] = 0;
+    }
+
+    // Use startclock time for simulations
+    // var deadline = Date.now() + Math.floor(startclock - 2) * 1000;
+    explore(
+      headstartStates,
+      headstartScores,
+      headstartVisits,
+      headstart_deadline
+    );
+    selectedPlayFunction = playMCS;
+    console.log("Chosen player: MCS");
+  } else {
+    document.getElementById("bs1").textContent = "Alpha-Beta Player";
+    selectedPlayFunction = play_alpha_beta_id;
+    console.log("Chosen player: Alpha Beta ID");
+  }
+  return "ready";
+}
+
+function bigSwitch(deadline) {
+  while (Date.now() < deadline) {
+    var info = makeinfo();
+    info = modified_depthcharge(info, state);
+    BF = Math.max(BF, info.branchfactor);
+    MD = Math.max(MD, info.maxdepth);
+    if (MD > 0) {
+      // prevent divide by zero
+      IR = Math.max(IR, info.intermediatereward / info.maxdepth);
+    }
+  }
+
+  // Update the HTML boxes with the latest values
+  document.getElementById("branchFactor").textContent = BF;
+  document.getElementById("maxDepth").textContent = MD;
+  document.getElementById("intermediateRatio").textContent = IR.toFixed(2); // Format to 2 decimal places
+  document.getElementById("totalNodes").textContent = total_nodes;
+  total_nodes = 0;
+
+  console.log("Branching factor:", BF);
+  console.log("Max depth:", MD);
+  console.log("Intermediate ratio:", IR);
+}
+
+function modified_depthcharge(info, mdc_state) {
+  total_nodes++;
+  if (findterminalp(mdc_state, library)) {
+    return info;
+  }
+  actions = shuffle(findlegals(mdc_state, library));
+  info.branchfactor = Math.max(info.branchfactor, actions.length);
+  info.maxdepth++;
+  // accumulate intermediate rewards and divide later
+  info.intermediatereward =
+    info.intermediatereward + findreward(role, mdc_state, library) * 1;
+  if (actions.length > 0) {
+    var newstate = simulate(actions[0], mdc_state, library);
+    modified_depthcharge(info, newstate);
+  }
+  return info;
+}
+
+function makeinfo() {
+  return { branchfactor: 0, maxdepth: 0, intermediatereward: 0 };
+}
+
+//==============================================================================
+
+function play(move) {
+  move = symbolizeatom(move);
+  if (move !== nil) {
+    state = simulate(move, state, library);
+  }
+  if (findcontrol(state, library) !== role) {
+    return false;
+  }
+  move = selectedPlayFunction(state);
+  move = unsymbolizeatom(move);
+  document.getElementById("NODES").textContent = NODES;
+  document.getElementById("TERMINALS").textContent = TERMINALS;
+  return move;
+}
+
+//===============================================================
+// MCS PLAYER
+//===============================================================
+
+function playMCS(state) {
+  var actions = findlegals(state, library);
+  if (actions.length === 0) return false;
+  if (actions.length === 1) return actions[0];
+
+  var reuseHeadstart = arraysEqual(actions, headstartActions);
+  var scores = [];
+  var visits = [];
+  var states = [];
+
+  for (var i = 0; i < actions.length; i++) {
+    states[i] = simulate(actions[i], state, library);
+    if (reuseHeadstart) {
+      scores[i] = headstartScores[i];
+      visits[i] = headstartVisits[i];
+    } else {
+      scores[i] = 0;
+      visits[i] = 0;
+    }
+  }
+
+  var deadline = Date.now() + Math.floor(playclock - 2) * 1000;
+  explore(states, scores, visits, deadline);
+  return selectaction(actions, scores, visits);
+}
+
+//==============================================================================
+
+function explore(states, scores, visits, deadline) {
+  var index = 0;
+  var depthcharges = 0;
+  while (Date.now() < deadline) {
+    if (index >= states.length) index = 0;
+    var result = depthcharge(states[index]);
+    scores[index] += result;
+    visits[index] += 1;
+    depthcharges++;
+    index++;
+  }
+  console.log("Depthcharges: ", depthcharges);
+  return true;
+}
+
+function depthcharge(state) {
+  if (findterminalp(state, library)) {
+    TERMINALS++;
+    return findreward(role, state, library) * 1;
+  }
+  var actions = findlegals(state, library);
+  if (actions.length === 0) return 0;
+  var best = randomindex(actions.length);
+  NODES++;
+  var newstate = simulate(actions[best], state, library);
+  return depthcharge(newstate);
+}
+
+function selectaction(actions, scores, visits) {
+  var action = actions[0];
+  var score = -1;
+  var probes = 0;
+
+  for (var i = 0; i < actions.length; i++) {
+    var newscore = Math.round(scores[i] / visits[i]);
+    if (newscore === 100) return actions[i];
+    if (newscore > score) {
+      action = actions[i];
+      score = newscore;
+      probes = visits[i];
+    }
+  }
+
+  console.log("Best move score:", score, "Probes:", probes);
+  return action;
+}
+
+function randomindex(n) {
+  return Math.floor(Math.random() * n);
+}
+
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+//==============================================================================
+function play_alpha_beta_id(state) {
+  var deadline = Date.now() + (playclock - 1) * 1000;
+  var best = findlegalx(state, library);
+  for (var depth = 1; depth < 10; depth++) {
+    var action = play_alpha_beta_id_inner(state, role, 0, 100, depth, deadline);
+    if (action === false) {
+      return best;
+    }
+    best = action;
+  }
+  return best;
+}
+
+//===============================================================
+// Finds best action by evaluating future rewards via iterative
+// deepening alpha beta
+//===============================================================
+function play_alpha_beta_id_inner(state, role, alpha, beta, depth, deadline) {
+  var actions = shuffle(findlegals(state, library));
+  if (actions.length === 0) {
+    return false;
+  }
+  if (actions.length === 1) {
+    return actions[0];
+  }
+  var bestAction = actions[0];
+  var bestScore = 0;
+
+  for (var i = 0; i < actions.length; i++) {
+    var newState = simulate(actions[i], state, library);
+    var result = alphabeta_bounded_id(
+      newState,
+      role,
+      alpha,
+      beta,
+      depth,
+      deadline
+    );
+    if (result === false) {
+      return false;
+    }
+    if (result === 100) {
+      return actions[i];
+    } // early return for winning move
+    if (result > bestScore) {
+      bestScore = result;
+      bestAction = actions[i];
+    }
+  }
+  return bestAction;
+}
+
+//===============================================================
+// Alpha-beta search with bounded depth iterative deepening
+//===============================================================
+function alphabeta_bounded_id(state, role, alpha, beta, depth, deadline) {
+  if (findterminalp(state, library)) {
+    TERMINALS++;
+    return findreward(role, state, library) * 1;
+  }
+  if (depth <= 0) {
+    return evalWeights(state, library); // USES INTERMEDIATE REWARD HERE
+  }
+  if (Date.now() > deadline) {
+    return false;
+  }
+  var active = findcontrol(state, library);
+  if (active === role) {
+    return maximize_bounded_id(state, role, alpha, beta, depth - 1, deadline);
+  }
+  return minimize_bounded_id(state, role, alpha, beta, depth - 1, deadline);
+}
+
+//===============================================================
+// Iterative deepening maximize bounded
+//===============================================================
+function maximize_bounded_id(state, role, alpha, beta, depth, deadline) {
+  var actions = findlegals(state, library);
+  if (actions.length === 0) {
+    return 0;
+  }
+  var score = 0;
+  for (var i = 0; i < actions.length; i++) {
+    NODES++;
+    var newstate = simulate(actions[i], state, library);
+    var newscore = alphabeta_bounded_id(
+      newstate,
+      role,
+      alpha,
+      beta,
+      depth,
+      deadline
+    );
+    if (newscore === 100) {
+      return 100;
+    }
+    if (newscore === false) {
+      return false;
+    }
+    if (newscore > score) {
+      score = newscore;
+    }
+    if (score >= beta) {
+      break;
+    }
+    alpha = Math.max(alpha, score);
+  }
+  return score;
+}
+
+//===============================================================
+// Iterative deepening minimize bounded
+//===============================================================
+function minimize_bounded_id(state, role, alpha, beta, depth, deadline) {
+  var actions = findlegals(state, library);
+  if (actions.length === 0) {
+    return 0;
+  }
+  var score = 100;
+  for (var i = 0; i < actions.length; i++) {
+    NODES++;
+    var newstate = simulate(actions[i], state, library);
+    var newscore = alphabeta_bounded_id(
+      newstate,
+      role,
+      alpha,
+      beta,
+      depth,
+      deadline
+    );
+    if (newscore === false) {
+      return false;
+    }
+    if (newscore === 0) {
+      return 0;
+    }
+    if (newscore < score) {
+      score = newscore;
+    }
+    if (score <= alpha) {
+      break;
+    }
+    beta = Math.min(beta, score);
+  }
+  return score;
+}
+
+//===============================================================
+// Evaluation functions:
+// Intermediate reward evaluation function (returns actual reward in all states)
+// Mobility/focus functions (your mobility, limiting opponent mobility)
+//===============================================================
+function evalWeights(state, library) {
+  if (roles.length > 1) {
+    return 1 * intermediateEval(state, library); // + (0.2 * mobility(state, library))
+  }
+  return (
+    0.7 * intermediateEval(state, library) + 0.3 * pessimistic(state, library)
+  );
+}
+
+function intermediateEval(state, library) {
+  return findreward(role, state, library) * 1;
+}
+
+function mobility(state, library) {
+  var actions = findlegals(state, library);
+  var feasibles = findactions(library);
+  return (actions.length / feasibles.length) * 100;
+}
+
+function focus(state, library) {
+  var actions = findlegals(state, library);
+  var feasibles = findactions(library);
+  return 100 - (actions.length / feasibles.length) * 100;
+}
+
+function pessimistic(state, library) {
+  if (findterminalp(state, library)) {
+    return findreward(role, state, library) * 1;
+  }
+  return 0;
+}
+
+//===============================================================
+// shuffle function
+//===============================================================
+function shuffle(actions) {
+  for (var i = actions.length - 1; i > 0; i--) {
+    // https://www.geeksforgeeks.org/how-to-shuffle-an-array-using-javascript/
+    var idx = Math.floor(Math.random() * (i + 1));
+    var temp = actions[i];
+    actions[i] = actions[idx];
+    actions[idx] = temp;
+  }
+  return actions;
+}
+
+//==============================================================================
+
+function stop(move) {
+  return false;
+}
+
+function abort() {
+  return false;
+}
+
+function write(text) {
+  document.getElementById("transcript").textContent = text;
+}
+
+
+//==============================================================================
+// End of player code
+//==============================================================================
+  </script>
+<style></style><style></style><style id="LLPlatform"></style></head>
+
+
+<!--=======================================================================-->
+
+
+<body bgcolor="#aabbbb" onload="doinitialize()"><div id="shadowLL"><div id="shadowLL"></div></div>
+  <center>
+    <table width="720" cellspacing="0" cellpadding="40" bgcolor="#ffffff">
+      <tbody><tr>
+        <td>
+
+
+<!--=======================================================================-->
+
+
+<center>
+  <table width='640' cellpadding='0'>
+    <tr>
+      <td width='180' align='center' valign='center'>
+        <img width='130' src='http://gamemaster.stanford.edu/images/ggp.jpg'/>
+      </td>
+      <td align='center'>
+        <span style='font-size:18pt'>&nbsp;</span>
+        <span style='font-size:32pt'>Gamemaster</span><br/>
+      </td>
+      <td width='180' align='center' style='color:#000066;font-size:18px'>
+        <i>General<br/>Game<br/>Playing</i>
+      </td>
+    </tr>
+  </table>
+</center>
+
+
+<!--=======================================================================-->
+
+
+<br>
+<table width="640" cellpadding="8" cellspacing="0" bgcolor="#f4f8f8" border="1">
+  <tbody><tr height="40">
+     <td align="center">
+<table style="color:#000066;font-size:18px">
+  <tbody><tr>
+    <td>
+Protocol: localstorage<br>
+Metagamer: Bigswitch + Headstart<br>
+Strategy: MCS or Alpha Beta ID!<br>
+Identifier: <span id="player">rollthedice</span> <img <img src="http://gamemaster.stanford.edu/images/pencil.gif" onclick="doplayer()">
+    </td>
+  </tr>
+</tbody></table>
+    </td>
+  </tr>
+</tbody></table>
+<br>
+
+<div id="bs" style="text-align: center; margin-top: 20px;">
+<h1 id="bs1"></h1>
+</div>
+
+<div id="bigswitch stats" style="text-align: center; margin-top: 20px;">
+  <h2>BigSwitch Results</h2>
+  <div style="display: flex; justify-content: center; gap: 20px;">
+    <div>
+      <h3>Branch Factor</h3>
+      <div id="branchFactor" style="padding: 10px; border: 1px solid #ccc; width: 100px; text-align: center;">0</div>
+    </div>
+    <div>
+      <h3>Max Depth</h3>
+      <div id="maxDepth" style="padding: 10px; border: 1px solid #ccc; width: 100px; text-align: center;">0</div>
+    </div>
+    <div>
+      <h3>Intermediate Ratio</h3>
+      <div id="intermediateRatio" style="padding: 10px; border: 1px solid #ccc; width: 100px; text-align: center;">0</div>
+    </div>
+    <div>
+      <h3>Total Nodes</h3>
+      <div id="totalNodes" style="padding: 10px; border: 1px solid #ccc; width: 100px; text-align: center;">0</div>
+    </div>
+  </div>
+</div>
+
+<div id="bigswitch stats" style="text-align: center; margin-top: 20px;">
+  <h2>Game Results</h2>
+  <div style="display: flex; justify-content: center; gap: 20px;">
+    <div>
+      <h3>Total Nodes</h3>
+      <div id="NODES" style="padding: 10px; border: 1px solid #ccc; width: 100px; text-align: center;">0</div>
+    </div>
+    <div>
+      <h3>Total Terminals</h3>
+      <div id="TERMINALS" style="padding: 10px; border: 1px solid #ccc; width: 100px; text-align: center;">0</div>
+    </div>
+  </div>
+</div>
+
+
+<!--=======================================================================-->
+<div style="width: full; text-align: center;">
+  <h1>Assignment 7 Writeup</h1>
+  <p>
+    For our Assignment 7 player, we modified our bigSwitch() function to give us better info about the games we were playing. Instead of doing a single depth charge, we run depth charge simulations until we hit the big switch deadline. During these simulations, we keep track of the maximum branching factor, depth, and intermediate ratio we encounter. We track max branching factor by grabbing the maximum number of actions we see throughout the simulated depth charge process. We evaluate max depth by tracking the maximum depth our charge hits. For our intermediate ratio, we just accumulate the intermediate values we see throughout the depth charge and then set the ratio as that value divided by the total nodes we visit on the simulated path.
+  </p>
+  <p>
+    We also updated our html to display this information on our player page. The primary metric we plan to use when evaluating which player to pick is the intermediate ratio. If a game has very sparse to no intermediate states, we want to use MCS; otherwise, we will use alpha-beta iterative deepening. However, we wanted to track these metrics because we plan to modify the PTS exploration constant for our player based on these values. 
+  </p>
+  <p>
+    For this week’s performance comparisons, here are our results at the following link: <a href="https://docs.google.com/spreadsheets/d/1NqfIHChoxu0TUaeurFJfbzCGxvCUSgR203VxpL0TqOo/edit?usp=sharing">https://docs.google.com/spreadsheets/d/1NqfIHChoxu0TUaeurFJfbzCGxvCUSgR203VxpL0TqOo/edit?usp=sharing</a>
+  </p>
+  <p>
+    We noticed results similar to what we assessed in class. More specifically, having the grounded rules on the normal interpreter did hurt performance. Including the specialized interpreter for both grounding and symbolizing improved performance for larger games overall, in comparison to non-grounded and non-symbolized games.
+  </p>
+  <p>
+    We are still in the process of improving our players, and hope they get better by the next round!
+  </p>
+</div>
+
+<!--=======================================================================-->
+
+
+<center>
+  <br>
+  <textarea id="transcript" style="font-family:courier" rows="30" cols="80" readonly="readonly"></textarea>
+</center>
+
+
+<!--=======================================================================-->
+
+
+        </td>
+      </tr>
+    </tbody></table>
+  </center>
+
+
+
+
+
+
+
+</body><!--=======================================================================--></html>
