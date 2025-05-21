@@ -17,7 +17,6 @@ var startclock = 10;
 var playclock = 10;
 
 var total_nodes = 0;
-var total_playouts = 0;
 
 //===============================================================
 
@@ -37,8 +36,6 @@ function start(r, rs, sc, pc) {
   // for persistent tree
   var reward = parseInt(findreward(role, state, library));
   tree = makenode(state, findcontrol(state, library), reward);
-  total_nodes = 0;
-  total_playouts = 0;
   return "ready";
 }
 
@@ -86,9 +83,8 @@ function play(move) {
 function playMCTS(state) {
   var deadline = Date.now() + Math.floor(playclock - 2) * 1000;
   while (Date.now() < deadline) { process(tree) };
-  console.log("Curr num nodes: ", total_nodes);
-  console.log("Curr num playouts: ", total_playouts);
-  console.log("Curr utility: ", tree.utility);
+
+
   return selectaction(tree);
 
   // this code is from MCS for just making the next states for exploration
@@ -128,7 +124,12 @@ function process(node) {
     // do something with the result
     // UCT on result??? 
     // bare minimum, backpropagate here after simulation
-    backpropagate(picknode, result);
+    //backpropagate(picknode, result);
+    while (picknode != null) {
+      picknode.visits++;
+      picknode.reward += result;
+      picknode = picknode.parent;
+    }
   } else {
     // if already expanded, select the best node
     process(select(node));
@@ -309,6 +310,7 @@ function selectaction (actions, scores, visits) {
     }
   }
   // console.log("Score: ", score);
+  // DOES NO PROBES AND ERRORS OUT*****************
   console.log("Probes: ", probes);
   return action;
 }
